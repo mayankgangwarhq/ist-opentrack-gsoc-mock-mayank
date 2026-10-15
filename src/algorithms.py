@@ -1,4 +1,3 @@
-
 """Utility algorithms used across OpenTrack."""
 
 
@@ -19,19 +18,22 @@ def first_unique_index(text):
 
 
 def merge_intervals(intervals):
-    """Merge overlapping or touching intervals."""
+    """Merge overlapping or touching inclusive intervals."""
     if not intervals:
         return []
 
-    sorted_intervals = sorted(intervals, key=lambda interval: interval[0])
-    merged = [list(sorted_intervals[0])]
+    normalized = []
+    for interval in intervals:
+        if len(interval) != 2:
+            raise ValueError("interval must contain start and end")
+        start, end = interval
+        normalized.append((start, end))
 
-    for start, end in sorted_intervals[1:]:
-        last = merged[-1]
-
-        if start <= last[1]:
-            last[1] = max(last[1], end)
-        else:
+    merged = []
+    for start, end in sorted(normalized, key=lambda interval: (interval[0], interval[1])):
+        if not merged or start > merged[-1][1]:
             merged.append([start, end])
+        else:
+            merged[-1][1] = max(merged[-1][1], end)
 
     return merged
