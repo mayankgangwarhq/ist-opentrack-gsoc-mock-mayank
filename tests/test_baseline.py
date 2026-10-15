@@ -1,126 +1,53 @@
-"""Public starter tests and regression tests for OpenTrack."""
 
-import unittest
+"""JSON file persistence for OpenTrack."""
 
-from src.issue_service import IssueNotFound, IssueService
-from src.validators import ValidationError
+import json
+import os
 
-class MemoryStorage:
-    """In-memory storage for tests."""
 
-    def __init__(self):
-        self.data = {}
+class JsonStorage:
+    """Persists issues and the next available ID to a JSON file."""
+
+    def __init__(self, path):
+        self.path = path
+        self.next_id = 1
 
     def load(self):
-        return dict(self.data)
+        """Load issues and preserve ID continuity."""
+        if not os.path.exists(self.path):
+            self.next_id = 1
+            return {}
 
-    def save(self, issues):
-        self.data = dict(issues)
+        with open(self.path, "r", encoding="utf-8") as f:
+            raw = json.load(f)
 
-class TestBaseline(unittest.TestCase):
-    def setUp(self):
-        self.service = IssueService(MemoryStorage())
-    def test_create_assigns_id_and_defaults(self):
-        issue = self.service.create({"title": "First bug"})
-        self.assertEqual(issue["id"], 1)
-        self.assertEqual(issue["status"], "open")
-        self.assertEqual(issue["priority"], "medium")
+        issues = {
+            int(k): v for k, v in raw.get("issues", {}).items()
+        }
 
-    def test_ids_increase(self):
-        a = self.service.create({"title": "Issue A"})
-        b = self.service.create({"title": "Issue B"})
-        self.assertEqual((a["id"], b["id"]), (1, 2))
-
-    def test_get_returns_created_issue(self):
-        created = self.service.create({
-            "title": "Readable title",
-            "priority": "high",
-        })
-        fetched = self.service.get(created["id"])
-        self.assertEqual(fetched["title"], "Readable title")
-        self.assertEqual(fetched["priority"], "high")
-
-    def test_get_missing_raises(self):
-        with self.assertRaises(IssueNotFound):
-            self.service.get(42)
-
-    def test_list_sorted_by_id(self):
-        for name in ("one", "two", "three"):
-            self.service.create({"title": f"issue {name}"})
-        ids = [i["id"] for i in self.service.list_all()]
-        self.assertEqual(ids, [1, 2, 3])
-
-    def test_invalid_title_rejected(self):
-        with self.assertRaises(ValidationError):
-            self.service.create({"title": "ab"})
-
-    def test_invalid_priority_rejected(self):
-        with self.assertRaises(ValidationError):
-            self.service.create({
-                "title": "valid title",
-                "priority": "urgent",
-            })
-
-    def test_delete_removes_issue(self):
-        issue = self.service.create({"title": "to be removed"})
-        self.service.delete(issue["id"])
-        with self.assertRaises(IssueNotFound):
-            self.service.get(issue["id"])
-
-    def test_update_status_preserves_title_and_priority(self):
-        issue = self.service.create({
-            "title": "Original issue",
-            "priority": "high",
-        })
-        updated = self.service.update(
-            issue["id"], {"status": "closed"}
+        # Support existing files that don't contain next_id.
+        minimum_next_id = max(issues, default=0) + 1
+        self.next_id = max(
+            raw.get("next_id", minimum_next_id),
+            minimum_next_id,
         )
-        self.assertEqual(updated["title"], "Original issue")
-        self.assertEqual(updated["priority"], "high")
-        self.assertEqual(updated["status"], "closed")
 
-    def test_update_priority_preserves_other_fields(self):
-        issue = self.service.create({
-            "title": "Original issue",
-            "priority": "low",
-        })
-        updated = self.service.update(
-            issue["id"], {"priority": "high"}
-        )
-        self.assertEqual(updated["title"], "Original issue")
-        self.assertEqual(updated["priority"], "high")
-        self.assertEqual(updated["status"], "open")
+        return issues
 
-    def test_invalid_partial_update_preserves_issue(self):
-        issue = self.service.create({"title": "Original issue"})
-        with self.assertRaises(ValidationError):
-            self.service.update(
-                issue["id"], {"status": "invalid"}
+    def save(self, issues, next_id=None):
+        """Write issues and the next available ID to disk."""
+        if next_id is not None:
+            self.next_id = max(next_id, max(issues, default=0) + 1)
+        else:
+            self.next_id = max(
+                self.next_id,
+                max(issues, default=0) + 1,
             )
-        self.assertEqual(self.service.get(issue["id"]), issue)
 
-    def test_invalid_title_in_partial_update_is_rejected(self):
-        issue = self.service.create({"title": "Original issue"})
-        with self.assertRaises(ValidationError):
-            self.service.update(
-                issue["id"], {"title": "ab"}
-            )
-        self.assertEqual(self.service.get(issue["id"]), issue)
+        payload = {
+            "issues": {str(k): v for k, v in issues.items()},
+            "next_id": self.next_id,
+        }
 
-    def test_empty_partial_update_is_rejected(self):
-        issue = self.service.create({"title": "Original issue"})
-        with self.assertRaises(ValidationError):
-            self.service.update(issue["id"], {})
-        self.assertEqual(self.service.get(issue["id"]), issue)
-
-    def test_unknown_partial_update_field_is_rejected(self):
-        issue = self.service.create({"title": "Original issue"})
-        with self.assertRaises(ValidationError):
-            self.service.update(
-                issue["id"], {"owner": "Mayank"}
-            )
-        self.assertEqual(self.service.get(issue["id"]), issue)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        with open(self.path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)

@@ -1,3 +1,4 @@
+
 """Core issue management service for OpenTrack."""
 
 from . import validators
@@ -11,20 +12,25 @@ class IssueService:
     def __init__(self, storage):
         self.storage = storage
         self.issues = self.storage.load()
+        self._next_issue_id = max(
+            getattr(self.storage, "next_id", 1),
+            max(self.issues, default=0) + 1,
+        )
 
     def _next_id(self):
-        if not self.issues:
-            return 1
-        return max(self.issues) + 1
+        return self._next_issue_id
 
     def create(self, data):
-        """Create a new issue and return it."""
+        """Create an issue without reusing previously assigned IDs."""
         normalized = validators.validate_new_issue(data)
         issue_id = self._next_id()
         issue = {"id": issue_id}
         issue.update(normalized)
+
         self.issues[issue_id] = issue
-        self.storage.save(self.issues)
+        self._next_issue_id = issue_id + 1
+        self.storage.save(self.issues, next_id=self._next_issue_id)
+
         return dict(issue)
 
     def get(self, issue_id):
@@ -41,20 +47,20 @@ class IssueService:
             raise IssueNotFound(f"no issue with id {issue_id}")
 
         normalized = validators.validate_issue_changes(changes)
-
         merged = dict(self.issues[issue_id])
         merged.update(normalized)
 
         self.issues[issue_id] = merged
-        self.storage.save(self.issues)
+        self.storage.save(self.issues, next_id=self._next_issue_id)
 
         return dict(merged)
 
     def delete(self, issue_id):
         if issue_id not in self.issues:
             raise IssueNotFound(f"no issue with id {issue_id}")
+
         del self.issues[issue_id]
-        self.storage.save(self.issues)
+        self.storage.save(self.issues, next_id=self._next_issue_id)
 
     def find(self, status=None, priority=None, title_contains=None):
         """Filter issues by status, priority, and title text."""
