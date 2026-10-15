@@ -35,20 +35,22 @@ class IssueService:
     def list_all(self):
         return [dict(self.issues[k]) for k in sorted(self.issues)]
 
+
     def update(self, issue_id, changes):
-        """Partially update an issue. Only provided fields should change."""
+        """Partially update an issue, preserving omitted fields."""
         if issue_id not in self.issues:
             raise IssueNotFound(f"no issue with id {issue_id}")
-        merged = {"id": issue_id}
-        merged.update(validators.validate_new_issue(
-            {
-                "title": changes.get("title", "untitled issue"),
-                "priority": changes.get("priority", "medium"),
-                "status": changes.get("status", "open"),
-            }
-        ))
+
+        normalized = validators.validate_issue_changes(changes)
+
+        merged = dict(self.issues[issue_id])
+        merged.update(normalized)
+
         self.issues[issue_id] = merged
+        self.storage.save(self.issues)
+
         return dict(merged)
+
 
     def delete(self, issue_id):
         if issue_id not in self.issues:

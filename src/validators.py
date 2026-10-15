@@ -42,3 +42,33 @@ def validate_new_issue(data):
     priority = validate_priority(data.get("priority", "medium"))
     status = validate_status(data.get("status", "open"))
     return {"title": title, "priority": priority, "status": status}
+
+
+def validate_issue_changes(changes):
+    """Validate only fields supplied for a partial update."""
+    if not isinstance(changes, dict):
+        raise ValidationError("update payload must be a dict")
+
+    if not changes:
+        raise ValidationError("update payload must contain at least one field")
+
+    allowed_fields = {"title", "priority", "status"}
+    unknown_fields = set(changes) - allowed_fields
+
+    if unknown_fields:
+        raise ValidationError(
+            f"unknown update fields: {sorted(unknown_fields)}"
+        )
+
+    normalized = {}
+
+    if "title" in changes:
+        normalized["title"] = validate_title(changes["title"])
+
+    if "priority" in changes:
+        normalized["priority"] = validate_priority(changes["priority"])
+
+    if "status" in changes:
+        normalized["status"] = validate_status(changes["status"])
+
+    return normalized
